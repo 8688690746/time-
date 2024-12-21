@@ -1,0 +1,144 @@
+import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
+import 'package:get/get.dart';
+
+// Ensure you have a color defined as kGreenColor and screens like WelcomeHomeScreen
+// and LocationScreen properly set up in your project.
+
+class PickupTimeScreen extends StatefulWidget {
+  final DateTime? scheduledDate;
+  final TimeOfDay? scheduledTime;
+
+  const PickupTimeScreen({
+    Key? key,
+    this.scheduledDate,
+    this.scheduledTime,
+  }) : super(key: key);
+
+  @override
+  _PickupTimeScreenState createState() => _PickupTimeScreenState();
+}
+
+class _PickupTimeScreenState extends State<PickupTimeScreen> {
+  DateTime? _selectedDate;
+  TimeOfDay? _selectedTime;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedDate = widget.scheduledDate;
+    _selectedTime = widget.scheduledTime;
+  }
+
+  Future<void> _selectDate(BuildContext context) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: _selectedDate ?? DateTime.now(),
+      firstDate: DateTime.now(),
+      lastDate: DateTime.now().add(const Duration(days: 90)),
+    );
+    if (picked != null && picked != _selectedDate) {
+      setState(() {
+        _selectedDate = picked;
+      });
+    }
+  }
+
+  Future<void> _selectTime(BuildContext context) async {
+    final TimeOfDay? picked = await showTimePicker(
+      context: context,
+      initialTime: _selectedTime ?? TimeOfDay.now(),
+    );
+    if (picked != null && picked != _selectedTime) {
+      setState(() {
+        _selectedTime = picked;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        leading: IconButton(
+          icon: const Icon(Icons.close),
+          onPressed: () {
+            Get.offAll(() => const WelcomeHomeScreen());
+          },
+        ),
+        title: const Text("Set Pickup Time"),
+      ),
+      body: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: ListView(
+          children: [
+            const Text(
+              "When do you want to be picked up?",
+              style: TextStyle(
+                fontSize: 24.0,
+                fontWeight: FontWeight.bold,
+              ),
+            ),
+            const SizedBox(height: 16.0),
+            GestureDetector(
+              onTap: () => _selectDate(context),
+              child: Card(
+                elevation: 4,
+                child: Padding(
+                  padding: const EdgeInsets.all(16.0),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Text(
+                        _selectedDate != null
+                            ? DateFormat('EEE, MMM d').format(_selectedDate!)
+                            : "Select a date",
+                        style: const TextStyle(
+                          fontSize: 15.0,
+                          color: Colors.green,
+                        ),
+                      ),
+                      GestureDetector(
+                        onTap: () => _selectTime(context),
+                        child: Text(
+                          _selectedTime != null
+                              ? _selectedTime!.format(context)
+                              : "Select a time",
+                          style: const TextStyle(
+                            fontSize: 15.0,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 16.0),
+            _buildScheduleList(),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildScheduleList() {
+    if (widget.scheduledDate == null || widget.scheduledTime == null) {
+      return const Text("No scheduled rides.");
+    }
+    return ListView(
+      shrinkWrap: true,
+      physics: const NeverScrollableScrollPhysics(),
+      children: [
+        Card(
+          child: ListTile(
+            title: Text("Date: ${DateFormat('EEE, MMM d').format(widget.scheduledDate!)}"),
+            subtitle: Text("Time: ${widget.scheduledTime!.format(context)}"),
+          ),
+        ),
+      ],
+    );
+  }
+}
