@@ -1,0 +1,588 @@
+import 'dart:convert';
+import 'dart:io';
+import 'package:flutter/material.dart';
+import 'package:flutter_stripe/flutter_stripe.dart';
+import 'package:get/get.dart';
+import 'package:get/get_rx/src/rx_workers/utils/debouncer.dart';
+import 'package:http/http.dart' as http;
+import 'package:webview_flutter/webview_flutter.dart';
+
+import '../../resources/color_resources.dart';
+import '../../widgets/common_app_bar.dart';
+import '../../widgets/webview_screen.dart';
+
+class PurchaseRideCoinsScreen extends StatefulWidget {
+  const PurchaseRideCoinsScreen({super.key});
+
+  @override
+  PurchaseRideCoinsScreenState createState() => PurchaseRideCoinsScreenState();
+}
+
+class PurchaseRideCoinsScreenState extends BaseStatefulWidgetState<PurchaseRideCoinsScreen> {
+  final RideCoinsController controller = Get.find<RideCoinsController>();
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+  final TextEditingController _amountController = TextEditingController();
+  final Debouncer _debouncer = Debouncer(
+      delay: const Duration(milliseconds: 500));
+  String selectedPaymentMethod = 'Pay with card'; // Default payment method
+
+  @override
+  void initState() {
+    super.initState();
+    controller.showRideCoins.value = false;
+  }
+
+  @override
+  PreferredSizeWidget buildAppBar(BuildContext context) {
+    return CommonAppBar(
+      context: context,
+      title: "Purchase Ride Coins",
+      onLeadingIconTap: () {
+        Get.back();
+      },
+    );
+  }
+
+  @override
+  Widget buildBody() {
+    return Stack(
+      children: [
+        SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          child: Form(
+            key: _formKey,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _buildAmountField(),
+                const SizedBox(height: 20),
+                Obx(() {
+                  if (controller.showRideCoins.value) {
+                    return Column(
+                      children: [
+                        _buildRideCoinsInfo(),
+                        const SizedBox(height: 20),
+                        CustomButton(
+                          label: "Choose Payment Method",
+                          height: 35,
+                          width: 250,
+                          onTap: () {
+                            _showPaymentMethodSelector(context);
+                          },
+                        ),
+                        const SizedBox(height: 20),
+                        Text(
+                          "Selected Payment Method: $selectedPaymentMethod",
+                          style: Theme
+                              .of(context)
+                              .textTheme
+                              .titleMedium,
+                        ),
+                      ],
+                    );
+                  } else {
+                    return const SizedBox.shrink();
+                  }
+                }),
+                const SizedBox(height: 20),
+                CustomButton(
+                  label: "Proceed",
+                  height: 45,
+                  width: 120,
+                  onTap: () {
+                    _processPayment(selectedPaymentMethod);
+                  },
+                ),
+                const SizedBox(height: 40),
+                _buildPaymentInfo(),
+              ],
+            ),
+          ),
+        ),
+        Obx(() {
+          if (controller.purchaseRideCoinsStatus.value.isLoading) {
+            return loadingIndicator();
+          } else {
+            return const SizedBox.shrink();
+          }
+        }),
+      ],
+    );
+  }
+
+  Widget _buildAmountField() {
+    return TextFormField(
+      style: Theme
+          .of(context)
+          .textTheme
+          .titleSmall
+          ?.copyWith(
+        fontSize: 18,
+        fontWeight: FontWeight.w600,
+      ),
+      onChanged: (value) {
+        _debouncer.call(() {
+          if (value.isNotEmpty) {
+            controller.showRideCoins.value = true;
+          } else {
+            controller.showRideCoins.value = false;
+          }
+          setState(() {});
+        });
+      },
+      controller: _amountController,
+      validator: (value) =>
+          AppUtils.validateRequiredField(
+            value ?? "",
+            "Amount is required.",
+          ),
+      keyboardType: TextInputType.number,
+      cursorColor: kGreenColor,
+      decoration: InputDecoration(
+        labelText: "Enter amount (\$)",
+        labelStyle: Theme
+            .of(context)
+            .textTheme
+            .titleMedium
+            ?.copyWith(
+          fontSize: 18,
+          color: kDarkGreyColor,
+        ),
+        border: const UnderlineInputBorder(
+          borderSide: BorderSide(color: kGreyColor, width: 0.4),
+        ),
+        focusedBorder: const UnderlineInputBorder(
+          borderSide: BorderSide(color: kDarkGreenColor, width: 0.5),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildRideCoinsInfo() {
+    return Column(
+      children: [
+        Row(
+          children: [
+            Expanded(
+              flex: 85,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    "Ride Coins to be added to your balance:",
+                    style: Theme
+                        .of(context)
+                        .textTheme
+                        .titleLarge
+                        ?.copyWith(
+                      fontSize: 15,
+                      color: kGreenColor,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    "Ride Coins purchased:",
+                    style: Theme
+                        .of(context)
+                        .textTheme
+                        .titleLarge
+                        ?.copyWith(
+                      fontSize: 15,
+                      color: kDarkGreyColor,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    "Processing fee:",
+                    style: Theme
+                        .of(context)
+                        .textTheme
+                        .titleLarge
+                        ?.copyWith(
+                      fontSize: 15,
+                      color: kDarkGreyColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              flex: 15,
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    _getTotalBal().toString(),
+                    style: Theme
+                        .of(context)
+                        .textTheme
+                        .titleLarge
+                        ?.copyWith(
+                      fontSize: 15,
+                      color: kGreenColor,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _getTotalPurchase().toString(),
+                    style: Theme
+                        .of(context)
+                        .textTheme
+                        .titleLarge
+                        ?.copyWith(
+                      fontSize: 15,
+                      color: kDarkGreyColor,
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    _getProcessingFee().toString(),
+                    style: Theme
+                        .of(context)
+                        .textTheme
+                        .titleLarge
+                        ?.copyWith(
+                      fontSize: 15,
+                      color: kAmberColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 20),
+      ],
+    );
+  }
+
+  Widget _buildPaymentInfo() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          "You get 10 Ride Coins for every \$ you pay",
+          style: Theme
+              .of(context)
+              .textTheme
+              .titleLarge
+              ?.copyWith(
+            fontSize: 16,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Text(
+            "*There is a base transaction fee of 3 Ride Coins for every purchase.\n*An additional 3 Ride Coins for every 100 coins purchased.\n*This ensures our drivers get most of the fare.",
+            style: Theme
+                .of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(color: kDarkGreyColor, fontSize: 16),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          child: Text(
+            "You can receive Ride Coins from other members using the Share Coin feature.",
+            style: Theme
+                .of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(fontSize: 16),
+          ),
+        ),
+      ],
+    );
+  }
+
+  void _showPaymentMethodSelector(BuildContext context) {
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (BuildContext context) {
+        return Padding(
+          padding: const EdgeInsets.all(18.0),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  IconButton(
+                    icon: const Icon(Icons.close),
+                    onPressed: () {
+                      Navigator.of(context).pop();
+                    },
+                  ),
+                  const Text(
+                    "Choose a payment method",
+                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.bold),
+                  ),
+                  const SizedBox(width: 50),
+                ],
+              ),
+              const SizedBox(height: 16),
+              ListTile(
+                leading: Image.asset(
+                    'assets/icons/cardpayment.png', width: 30, height: 30),
+                title: const Text('New credit card'),
+                trailing: selectedPaymentMethod == 'Pay with card'
+                    ? const Icon(Icons.check_circle, color: Colors.green)
+                    : null,
+                onTap: () {
+                  setState(() {
+                    selectedPaymentMethod = 'Pay with card';
+                  });
+                  Navigator.of(context).pop();
+                },
+              ),
+              ListTile(
+                leading: Image.asset(
+                    'assets/icons/paypal.png', width: 30, height: 30),
+                title: const Text('PayPal'),
+                trailing: selectedPaymentMethod == 'Pay with PayPal'
+                    ? const Icon(Icons.check_circle, color: Colors.green)
+                    : null,
+                onTap: () {
+                  setState(() {
+                    selectedPaymentMethod = 'Pay with PayPal';
+                  });
+                  Navigator.of(context).pop();
+                },
+              ),
+              ListTile(
+                leading: Image.asset(
+                    'assets/icons/venmo.png', width: 30, height: 30),
+                title: const Text('Venmo'),
+                trailing: selectedPaymentMethod == 'Pay with Venmo'
+                    ? const Icon(Icons.check_circle, color: Colors.green)
+                    : null,
+                onTap: () {
+                  setState(() {
+                    selectedPaymentMethod = 'Pay with Venmo';
+                  });
+                  Navigator.of(context).pop();
+                },
+              ),
+              ListTile(
+                leading: Image.asset(
+                    'assets/icons/amazon_pay.png', width: 30, height: 30),
+                title: const Text('Amazon Pay'),
+                trailing: selectedPaymentMethod == 'Pay with Amazon Pay'
+                    ? const Icon(Icons.check_circle, color: Colors.green)
+                    : null,
+                onTap: () {
+                  setState(() {
+                    selectedPaymentMethod = 'Pay with Amazon Pay';
+                  });
+                  Navigator.of(context).pop();
+                },
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  void _processPayment(String paymentMethod) async {
+    if (_formKey.currentState?.validate() ?? false) {
+      switch (paymentMethod) {
+        case 'Pay with card':
+          await _processCardPayment();
+          break;
+        case 'Pay with PayPal':
+          await _processPayPalPayment ();
+          break;
+        case 'Pay with Amazon Pay':
+          await _processCardPayment();
+          break;
+        case 'Pay with Venmo':
+        // Implement Venmo flow
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+
+  Future<void> _processCardPayment() async {
+    try {
+      final paymentIntent = await createPaymentIntent();
+      await Stripe.instance.initPaymentSheet(
+        paymentSheetParameters: SetupPaymentSheetParameters(
+          paymentIntentClientSecret: paymentIntent['client_secret'],
+          style: ThemeMode.light,
+          merchantDisplayName: 'RideALott Rider',
+        ),
+      );
+      await displayPaymentSheet();
+    } catch (err) {
+      print("ERROR ${err.toString()}");
+      showDialog(
+        context: context,
+        builder: (context) =>
+            AlertDialog(
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(Icons.cancel, color: kRedColor, size: 100),
+                  const SizedBox(height: 10),
+                  Text(err.toString(), textAlign: TextAlign.center),
+                ],
+              ),
+            ),
+      );
+    }
+  }
+
+  Future<Map<String, dynamic>> createPaymentIntent() async {
+    try {
+      Map<String, dynamic> body = {
+        'amount': (int.tryParse(_amountController.text.trim()) ?? 0) * 100,
+        // Ensure amount is correct
+        'currency': "USD",
+      };
+      var response = await http.post(
+        Uri.parse('https://api.stripe.com/v1/payment_intents'),
+        headers: {
+          'Authorization': 'Bearer ${AppConstants.stripeSecretKey}',
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: body.entries.map((e) => '${Uri.encodeComponent(e.key)}=${Uri
+            .encodeComponent(e.value.toString())}').join(
+            '&'), // Correct way to encode URL parameters
+      );
+      return json.decode(response.body); // Return the JSON response
+    } catch (err) {
+      throw Exception(err.toString());
+    }
+  }
+
+  Future<void> displayPaymentSheet() async {
+    try {
+      await Stripe.instance.presentPaymentSheet().then((value) async {
+        await controller.purchaseRideCoins({
+          "user_id": SharedPreferencesHelper.instance.getInt(userIdInt),
+          "source_id": 0,
+          "coins": _getTotalBal(),
+        });
+        if (controller.purchaseRideCoinsStatus.value.isSuccess) {
+          showToast(text: "Ride coins added to balance successfully.");
+          Get.back();
+        } else if (controller.purchaseRideCoinsStatus.value.isError) {
+          _showErrorDialog(controller.purchaseRideCoinsStatus.value.errorMessage ?? "");
+        }
+      }).onError((error, stackTrace) {
+        throw Exception(error);
+      });
+    } on StripeException catch (e) {
+      _showErrorDialog('Payment Failed');
+    } catch (e) {
+      _showErrorDialog(e.toString());
+    }
+  }
+  void _showErrorDialog(String message) {
+    showDialog(
+      context: context,
+      builder: (context) =>
+          AlertDialog(
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Icon(
+                  Icons.cancel,
+                  color: kRedColor,
+                  size: 100,
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  message,
+                  textAlign: TextAlign.center,
+                ),
+              ],
+            ),
+          ),
+    );
+  }
+  Future<bool> verifyAmazonPayTransaction(String orderReferenceId) async {
+    try {
+      var response = await http.get(
+        Uri.parse('http://localhost:3000/amazon-pay/verify/$orderReferenceId'),
+        headers: {
+          'Authorization': 'Bearer ${AppConstants.stripeSecretKey}',
+          // Amazon Pay Secret Key
+        },
+      );
+      var jsonResponse = json.decode(response.body);
+      return jsonResponse['status'] == 'Completed';
+    } catch (err) {
+      throw Exception("Verification failed: ${err.toString()}");
+    }
+  }
+  Future<void> _processPayPalPayment() async {
+    if (_formKey.currentState?.validate() ?? false) {
+      try {
+        final response = await http.post(
+          Uri.parse('http://192.168.1.6:3000/api/payment-method/create-paypal-order'),
+          headers: {'Content-Type': 'application/json'},
+          body: json.encode({
+            'amount': _amountController.text.trim(),
+          }),
+        );
+
+        if (response.statusCode == 200) {
+          final data = json.decode(response.body);
+          final approvalUrl = data['approvalUrl'];
+
+          if (approvalUrl != null) {
+            _openWebviewScreen(approvalUrl);  // Use WebviewScreen for PayPal
+          } else {
+            _showErrorDialog('Failed to get PayPal approval URL.');
+          }
+        } else {
+          _showErrorDialog('Failed to create PayPal order.');
+        }
+      } catch (e) {
+        _showErrorDialog('Error while creating PayPal order: $e');
+      }
+    }
+  }
+  void _openWebviewScreen(String approvalUrl) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => WebviewScreen(
+          url: approvalUrl, // Pass the URL to the WebviewScreen
+        ),
+      ),
+    );
+  }
+
+  int _getTotalBal() {
+    return (_getTotalPurchase() - _getProcessingFee());
+  }
+
+  int _getTotalPurchase() {
+    int amount = int.tryParse(_amountController.text.trim()) ?? 0;
+    return amount * 10;
+  }
+
+  int _getProcessingFee() {
+    int amount = (int.tryParse(_amountController.text.trim()) ?? 0) * 10;
+    int processingFee = 3;
+    processingFee += ((amount ~/ 100) * 3);
+    int remainingCoins = amount % 100;
+    if (remainingCoins > 0) {
+      processingFee += 3;
+    }
+    return processingFee;
+
+  }
+}
